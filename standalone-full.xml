@@ -117,7 +117,6 @@
         <subsystem xmlns="urn:jboss:domain:batch-jberet:3.0">
             <default-job-repository name="in-memory"/>
             <default-thread-pool name="batch"/>
-            <security-domain name="ApplicationDomain"/>
             <job-repository name="in-memory">
                 <in-memory/>
             </job-repository>
@@ -138,12 +137,26 @@
                         <password>sa</password>
                     </security>
                 </datasource>
+                <datasource jndi-name="java:jboss/jdbc/openScheduleDb" pool-name="openScheduleDb" enabled="true" use-java-context="true" statistics-enabled="true">
+                    <connection-url>jdbc:postgresql://localhost:5432/openSchedule</connection-url>
+                    <driver>postgresql</driver>
+                    <pool>
+                        <min-pool-size>8</min-pool-size>
+                        <initial-pool-size>8</initial-pool-size>
+                        <max-pool-size>32</max-pool-size>
+                        <prefill>true</prefill>
+                    </pool>
+                    <security>
+                        <user-name>postgres</user-name>
+                        <password>pgEbiAdmin</password>
+                    </security>
+                </datasource>
                 <datasource jndi-name="java:/OPENSCHEDULEDB" pool-name="post-gre-sql_openschedule_postgresPool" statistics-enabled="true">
                     <connection-url>jdbc:postgresql://localhost:5432/openSchedule</connection-url>
                     <driver>postgresql</driver>
                     <security>
                         <user-name>postgres</user-name>
-                        <password>admin</password>
+                        <password>pgEbiAdmin</password>
                     </security>
                 </datasource>
                 <drivers>
@@ -235,7 +248,7 @@
             <iiop enable-by-default="false" use-qualified-name="false"/>
             <default-security-domain value="other"/>
             <application-security-domains>
-                <application-security-domain name="other" security-domain="openschedule-security-domain"/>
+                <application-security-domain name="other" security-domain="ApplicationDomain"/>
             </application-security-domains>
             <default-missing-method-permissions-deny-access value="true"/>
             <statistics enabled="${wildfly.ejb3.statistics-enabled:${wildfly.statistics-enabled:false}}"/>
@@ -254,30 +267,17 @@
                 <file-audit-log name="local-audit" path="audit.log" relative-to="jboss.server.log.dir" format="JSON"/>
             </audit-logging>
             <security-domains>
-                <security-domain name="ApplicationDomain" default-realm="ApplicationRealm" permission-mapper="default-permission-mapper">
-                    <realm name="ApplicationRealm" role-decoder="groups-to-roles"/>
-                    <realm name="local"/>
-                </security-domain>
                 <security-domain name="ManagementDomain" default-realm="ManagementRealm" permission-mapper="default-permission-mapper">
                     <realm name="ManagementRealm" role-decoder="groups-to-roles"/>
                     <realm name="local" role-mapper="super-user-mapper"/>
                 </security-domain>
-                <security-domain name="openschedule-security-domain" default-realm="openschedulerealm" permission-mapper="default-permission-mapper">
-                    <realm name="openschedulerealm" role-decoder="groups-to-roles"/>
+                <security-domain name="ApplicationDomain" default-realm="ApplicationRealm" permission-mapper="default-permission-mapper">
+                    <realm name="ApplicationRealm" role-decoder="groups-to-roles"/>
+                    <realm name="local"/>
                 </security-domain>
             </security-domains>
             <security-realms>
                 <identity-realm name="local" identity="$local"/>
-                <jdbc-realm name="openschedulerealm">
-                    <principal-query sql="SELECT password FROM users WHERE username=?" data-source="post-gre-sql_openschedule_postgresPool">
-                        <simple-digest-mapper algorithm="simple-digest-sha-256" password-index="1"/>
-                    </principal-query>
-                    <principal-query sql="SELECT UG.groupname FROM usergroups AS UG, join_users_usergroups AS JU, users AS U WHERE username=? AND U.userid = JU.userid AND JU.groupid = UG.groupid " data-source="post-gre-sql_openschedule_postgresPool">
-                        <attribute-mapping>
-                            <attribute to="groups" index="1"/>
-                        </attribute-mapping>
-                    </principal-query>
-                </jdbc-realm>
                 <properties-realm name="ApplicationRealm">
                     <users-properties path="application-users.properties" relative-to="jboss.server.config.dir" digest-realm-name="ApplicationRealm"/>
                     <groups-properties path="application-roles.properties" relative-to="jboss.server.config.dir"/>
@@ -315,13 +315,6 @@
                 </permission-set>
             </permission-sets>
             <http>
-                <http-authentication-factory name="application-http-authentication" security-domain="ApplicationDomain" http-server-mechanism-factory="global">
-                    <mechanism-configuration>
-                        <mechanism mechanism-name="BASIC">
-                            <mechanism-realm realm-name="ApplicationRealm"/>
-                        </mechanism>
-                    </mechanism-configuration>
-                </http-authentication-factory>
                 <http-authentication-factory name="management-http-authentication" security-domain="ManagementDomain" http-server-mechanism-factory="global">
                     <mechanism-configuration>
                         <mechanism mechanism-name="DIGEST">
@@ -329,10 +322,10 @@
                         </mechanism>
                     </mechanism-configuration>
                 </http-authentication-factory>
-                <http-authentication-factory name="openschedule-http-authfactory" security-domain="openschedule-security-domain" http-server-mechanism-factory="global">
+                <http-authentication-factory name="application-http-authentication" security-domain="ApplicationDomain" http-server-mechanism-factory="global">
                     <mechanism-configuration>
-                        <mechanism mechanism-name="FORM">
-                            <mechanism-realm realm-name="openschedule-security-domain"/>
+                        <mechanism mechanism-name="BASIC">
+                            <mechanism-realm realm-name="ApplicationRealm"/>
                         </mechanism>
                     </mechanism-configuration>
                 </http-authentication-factory>
@@ -385,9 +378,6 @@
                     <server-ssl-context name="applicationSSC" key-manager="applicationKM"/>
                 </server-ssl-contexts>
             </tls>
-            <policy name="jacc">
-                <jacc-policy/>
-            </policy>
         </subsystem>
         <subsystem xmlns="urn:wildfly:elytron-oidc-client:1.0"/>
         <subsystem xmlns="urn:wildfly:health:1.0" security-enabled="false"/>
@@ -496,7 +486,6 @@
                 <http-connector name="http-connector-throughput" socket-binding="http" endpoint="http-acceptor-throughput">
                     <param name="batch-delay" value="50"/>
                 </http-connector>
-                <remote-connector name="remote-artemis1" socket-binding="remote-artemis1"/>
                 <in-vm-connector name="in-vm" server-id="0">
                     <param name="buffer-pooling" value="false"/>
                 </in-vm-connector>
@@ -510,17 +499,19 @@
                 </in-vm-acceptor>
                 <jms-queue name="ExpiryQueue" entries="java:/jms/queue/ExpiryQueue"/>
                 <jms-queue name="DLQ" entries="java:/jms/queue/DLQ"/>
-                <jms-queue name="rcs.tmi.timetable" entries="java:/jms/queue/MyQueue java:/jboss/exported/jms/queue/MyQueue"/>
-                <jms-topic name="TMS.OpenSchedule.Changes" entries="jms/openSchedule-changeTopic"/>
                 <connection-factory name="InVmConnectionFactory" entries="java:/ConnectionFactory" connectors="in-vm"/>
                 <connection-factory name="RemoteConnectionFactory" entries="java:jboss/exported/jms/RemoteConnectionFactory" connectors="http-connector"/>
-                <pooled-connection-factory name="remote-artemis" entries="java:/RemoteJmsXA java:jboss/RemoteJmsXA" connectors="remote-artemis1" ha="true" user="admin" password="admin" min-pool-size="3" max-pool-size="30" statistics-enabled="true"/>
                 <pooled-connection-factory name="activemq-ra" entries="java:/JmsXA java:jboss/DefaultJMSConnectionFactory" connectors="in-vm" transaction="xa"/>
             </server>
         </subsystem>
         <subsystem xmlns="urn:wildfly:metrics:1.0" security-enabled="false" exposed-subsystems="*" prefix="${wildfly.metrics.prefix:wildfly}"/>
         <subsystem xmlns="urn:wildfly:microprofile-config-smallrye:2.0"/>
         <subsystem xmlns="urn:wildfly:microprofile-jwt-smallrye:1.0"/>
+        <subsystem xmlns="urn:wildfly:microprofile-opentracing-smallrye:3.0" default-tracer="jaeger">
+            <jaeger-tracer name="jaeger">
+                <sampler-configuration sampler-type="const" sampler-param="1.0"/>
+            </jaeger-tracer>
+        </subsystem>
         <subsystem xmlns="urn:jboss:domain:naming:2.0">
             <remote-naming/>
         </subsystem>
@@ -529,8 +520,33 @@
             <http-connector name="http-remoting-connector" connector-ref="default" sasl-authentication-factory="application-sasl-authentication"/>
         </subsystem>
         <subsystem xmlns="urn:jboss:domain:request-controller:1.0"/>
-        <subsystem xmlns="urn:jboss:domain:resource-adapters:6.1"/>
-        <subsystem xmlns="urn:jboss:domain:sar:1.0"/>
+        <subsystem xmlns="urn:jboss:domain:resource-adapters:6.1">
+		<resource-adapters>
+                <resource-adapter id="artemis-rar-1.6.0-SNAPSHOT">
+                    <archive>
+                        \bin\artemis-rar-1.6.0-SNAPSHOT.rar
+                    </archive>
+                    <config-property name="port">61616</config-property>
+                    <config-property name="host">localhost</config-property>
+                    <config-property name="ConnectorClassName">org.apache.activemq.artemis.core.remoting.impl.netty.NettyConnectorFactory</config-property>
+                    <transaction-support>NoTransaction</transaction-support>
+                    <connection-definitions>
+                        <connection-definition class-name="org.apache.activemq.artemis.ra.ActiveMQRAConnectionFactory" jndi-name="jms/openSchedule-connectionFactory" pool-name="jms/openSchedule-connectionPool">
+                            <pool>
+                                <min-pool-size>8</min-pool-size>
+                                <initial-pool-size>8</initial-pool-size>
+                                <max-pool-size>32</max-pool-size>
+                                <flush-strategy>FailingConnectionOnly</flush-strategy>
+                            </pool>
+                        </connection-definition>
+                    </connection-definitions>
+                    <admin-objects>
+                        <admin-object class-name="com.sun.messaging.Topic" jndi-name="jms/openSchedule-changeTopic" pool-name="TMS.OpenSchedule.Changes"/>
+                    </admin-objects>
+                </resource-adapter>
+            </resource-adapters>
+			</subsystem>
+	     <subsystem xmlns="urn:jboss:domain:sar:1.0"/>
         <subsystem xmlns="urn:jboss:domain:security-manager:1.0">
             <deployment-permissions>
                 <maximum-set>
@@ -548,18 +564,18 @@
             <coordinator-environment statistics-enabled="${wildfly.transactions.statistics-enabled:${wildfly.statistics-enabled:false}}"/>
             <object-store path="tx-object-store" relative-to="jboss.server.data.dir"/>
         </subsystem>
-        <subsystem xmlns="urn:jboss:domain:undertow:13.0" default-server="default-server" default-virtual-host="default-host" default-servlet-container="default" default-security-domain="other" statistics-enabled="true">
+        <subsystem xmlns="urn:jboss:domain:undertow:13.0" default-server="default-server" default-virtual-host="default-host" default-servlet-container="default" default-security-domain="other" statistics-enabled="${wildfly.undertow.statistics-enabled:${wildfly.statistics-enabled:false}}">
             <byte-buffer-pool name="default"/>
             <buffer-cache name="default"/>
             <server name="default-server">
-                <http-listener name="default" socket-binding="http" record-request-start-time="true" redirect-socket="https" enable-http2="true"/>
-                <https-listener name="https" socket-binding="https" record-request-start-time="true" ssl-context="applicationSSC" enable-http2="true"/>
+                <http-listener name="default" socket-binding="http" redirect-socket="https" enable-http2="true"/>
+                <https-listener name="https" socket-binding="https" ssl-context="applicationSSC" enable-http2="true"/>
                 <host name="default-host" alias="localhost">
                     <location name="/" handler="welcome-content"/>
                     <http-invoker http-authentication-factory="application-http-authentication"/>
                 </host>
             </server>
-            <servlet-container name="default" stack-trace-on-error="all">
+            <servlet-container name="default">
                 <jsp-config/>
                 <websockets/>
             </servlet-container>
@@ -567,7 +583,7 @@
                 <file name="welcome-content" path="${jboss.home.dir}/welcome-content"/>
             </handlers>
             <application-security-domains>
-                <application-security-domain name="other" security-domain="openschedule-security-domain"/>
+                <application-security-domain name="other" security-domain="ApplicationDomain"/>
             </application-security-domains>
         </subsystem>
         <subsystem xmlns="urn:jboss:domain:webservices:2.0" statistics-enabled="${wildfly.webservices.statistics-enabled:${wildfly.statistics-enabled:false}}">
@@ -606,13 +622,5 @@
         <outbound-socket-binding name="mail-smtp">
             <remote-destination host="${jboss.mail.server.host:localhost}" port="${jboss.mail.server.port:25}"/>
         </outbound-socket-binding>
-        <outbound-socket-binding name="remote-artemis1">
-            <remote-destination host="127.0.0.1" port="61616"/>
-        </outbound-socket-binding>
     </socket-binding-group>
-    <deployments>
-        <deployment name="postgresql-42.5.1.jar" runtime-name="postgresql-42.5.1.jar">
-            <content sha1="ac2f61eb3b1b4e47ea45de47e73d2e92f49e3ce1"/>
-        </deployment>
-    </deployments>
 </server>
